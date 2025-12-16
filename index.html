@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>☁️ 我的云盘</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 40px;
+      max-width: 900px;
+      margin: 0 auto;
+      background-color: #f9f9fb;
+      color: #333;
+    }
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    p.subtitle {
+      text-align: center;
+      color: #7f8c8d;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    li {
+      padding: 12px 16px;
+      border-bottom: 1px solid #eee;
+      background: white;
+      border-radius: 8px;
+      margin: 8px 0;
+      display: flex;
+      align-items: center;
+    }
+    li:hover {
+      background: #f1f5f9;
+    }
+    a {
+      text-decoration: none;
+      color: #3498db;
+      font-size: 16px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .icon {
+      margin-right: 10px;
+      width: 20px;
+      text-align: center;
+    }
+    .size {
+      color: #7f8c8d;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+    .folder-name {
+      font-weight: bold;
+      color: #e67e22;
+      margin: 20px 0 10px;
+      padding-left: 10px;
+      border-left: 3px solid #e67e22;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #95a5a6;
+      font-size: 14px;
+    }
+    .loading {
+      text-align: center;
+      color: #95a5a6;
+      font-style: italic;
+    }
+    /* 预览弹窗 */
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      display: none;
+    }
+    .modal iframe {
+      width: 90%;
+      height: 80%;
+      border: none;
+      background: white;
+    }
+    .close-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>☁️ 我的云盘</h1>
+  <p class="subtitle">点击文件即可预览或下载</p>
+  <ul id="file-list">
+    <li class="loading">加载中...</li>
+  </ul>
+  <p class="footer">更新时间: <span id="update-time"></span></p>
+
+  <!-- 预览弹窗 -->
+  <div id="preview-modal" class="modal">
+    <button class="close-btn">×</button>
+    <iframe id="preview-frame"></iframe>
+  </div>
+
+  <script>
+    // 👇 修改这里：你的 GitHub 用户名 和 仓库名
+    const username = 'AcideFluorhydrique';
+    const repo = 'my-cloud';
+    const exclude = ['index.html', 'README.md', '.github']; // 忽略的文件
+
+    // 🔐 设置访问密码（⚠️ 所有人都能看到源码，不要用重要密码）
+    const ACCESS_PASSWORD = '111'; // ← 修改为你想要的密码
+
+    const fileList = document.getElementById('file-list');
+
+    // 文件类型图标
+    function getIcon(name) {
+      const ext = name.split('.').pop().toLowerCase();
+      if (['pdf'].includes(ext)) return '📕';
+      if (['doc', 'docx'].includes(ext)) return '📘';
+      if (['ppt', 'pptx'].includes(ext)) return '📊';
+      if (['xls', 'xlsx'].includes(ext)) return '📈';
+      if (['zip', 'rar', '7z'].includes(ext)) return '📦';
+      if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) return '🖼️';
+      if (['mp4', 'avi'].includes(ext)) return '🎬';
+      return '📄';
+    }
+
+    // 生成预览链接
+    function getPreviewUrl(filePath) {
+      const ext = filePath.split('.').pop().toLowerCase();
+      const rawUrl = `https://raw.githubusercontent.com/${username}/${repo}/main/${filePath}`;
+
+      // PDF：用浏览器本地预览
+      if (ext === 'pdf') {
+        return filePath;
+      }
+      // Office 文件：用微软在线预览
+      else if (['ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx'].includes(ext)) {
+        return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(rawUrl)}`;
+      }
+      // 图片：本地预览
+      else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+        return filePath;
+      }
+      // 其他文件：直接下载
+      else {
+        return rawUrl;
+      }
+    }
+
+    // 加载文件夹
+    async function loadFolder(path, displayName) {
+      const folderLi = document.createElement('li');
+      folderLi.className = 'folder-name';
+      folderLi.textContent = displayName || path;
+      fileList.appendChild(folderLi);
+
+      try {
+        const res = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/${path}`);
+        const files = await res.json();
+        files
+          .filter(file => file.type === 'file' && !exclude.includes(file.name))
+          .forEach(file => {
+            const li = document.createElement('li');
+            const previewUrl = getPreviewUrl(file.path);
+            const ext = file.name.split('.').pop().toLowerCase();
+
+            let previewText = '';
+            if (['pdf', 'pptx', 'ppt', 'docx', 'xlsx'].includes(ext)) {
+              previewText = '【预览】';
+            } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+              previewText = '【查看】';
+            } else {
+              previewText = '【下载】';
+            }
+
+            li.innerHTML = `
+              <a href="#" onclick="openPreview('${previewUrl}', '${file.name}'); return false;">
+                <span class="icon">${getIcon(file.name)}</span>
+                ${file.name}
+                <span class="size">(${(file.size / 1024).toFixed(1)} KB)</span>
+                <span style="color: #2ecc71;">${previewText}</span>
+              </a>
+            `;
+            fileList.appendChild(li);
+          });
+      } catch (err) {
+        const li = document.createElement('li');
+        li.innerHTML = `<a href="#" style="color:red">❌ 加载失败: ${path}</a>`;
+        fileList.appendChild(li);
+        console.error('加载文件夹失败:', err);
+      }
+    }
+
+    // 加载根目录文件
+    async function loadRoot() {
+      try {
+        const res = await fetch(`https://api.github.com/repos/${username}/${repo}/contents/`);
+        const items = await res.json();
+
+        const files = items.filter(item => item.type === 'file' && !exclude.includes(item.name));
+        const folders = items.filter(item => item.type === 'dir' && !exclude.includes(item.name));
+
+        // 显示根文件
+        files.forEach(file => {
+          const li = document.createElement('li');
+          const previewUrl = getPreviewUrl(file.name);
+          const ext = file.name.split('.').pop().toLowerCase();
+
+          let previewText = '';
+          if (['pdf', 'pptx', 'ppt', 'docx', 'xlsx'].includes(ext)) {
+            previewText = '【预览】';
+          } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+            previewText = '【查看】';
+          } else {
+            previewText = '【下载】';
+          }
+
+          li.innerHTML = `
+            <a href="#" onclick="openPreview('${previewUrl}', '${file.name}'); return false;">
+              <span class="icon">${getIcon(file.name)}</span>
+              ${file.name}
+              <span class="size">(${(file.size / 1024).toFixed(1)} KB)</span>
+              <span style="color: #2ecc71;">${previewText}</span>
+            </a>
+          `;
+          fileList.appendChild(li);
+        });
+
+        // 加载每个文件夹
+        for (const folder of folders) {
+          await loadFolder(folder.name, `📁 ${folder.name}`);
+        }
+
+      } catch (err) {
+        fileList.innerHTML = `<li><a href="#" style="color:red">❌ 加载失败，请检查用户名和仓库名</a></li>`;
+        console.error('加载仓库失败:', err);
+      }
+    }
+
+    // 打开预览弹窗
+    function openPreview(url, filename) {
+      const modal = document.getElementById('preview-modal');
+      const iframe = document.getElementById('preview-frame');
+      const closeBtn = document.querySelector('.close-btn');
+
+      iframe.src = url;
+      modal.style.display = 'flex';
+
+      closeBtn.onclick = () => {
+        iframe.src = ''; // 停止加载
+        modal.style.display = 'none';
+      };
+
+      modal.onclick = (e) => {
+        if (e.target === modal) closeBtn.click();
+      };
+    }
+
+    // 🛡️ 启动时先验证密码
+    window.onload = () => {
+      const password = prompt("请输入访问密码：", "");
+
+      if (password === null) {
+        // 用户点击取消
+        document.body.innerHTML = "<h1 style='text-align:center;color:#e74c3c;margin-top:100px;'>访问被取消</h1>";
+        return;
+      }
+
+      if (password !== ACCESS_PASSWORD) {
+        // 密码错误
+        document.body.innerHTML = "<h1 style='text-align:center;color:#e74c3c;margin-top:100px;'>❌ 访问被拒绝：密码错误</h1>";
+        return;
+      }
+
+      // 密码正确，开始加载文件
+      fileList.innerHTML = ''; // 清空加载提示
+      loadRoot();
+      document.getElementById('update-time').textContent = new Date().toLocaleString();
+    };
+  </script>
+</body>
+</html>
